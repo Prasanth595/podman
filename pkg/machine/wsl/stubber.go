@@ -162,13 +162,16 @@ func (w WSLStubber) SetProviderAttrs(mc *vmconfigs.MachineConfig, opts define.Se
 	}
 
 	if opts.UserModeNetworking != nil && mc.WSLHypervisor.UserModeNetworking != *opts.UserModeNetworking {
-		if running, _ := isRunning(mc.Name); running {
-			return errors.New("user-mode networking can only be changed when the machine is not running")
-		}
-
 		dist := env.WithPodmanPrefix(mc.Name)
 		if err := changeDistUserModeNetworking(dist, mc.SSH.RemoteUsername, mc.ImagePath.GetPath(), *opts.UserModeNetworking); err != nil {
 			return fmt.Errorf("failure changing state of user-mode networking setting: %w", err)
+		}
+
+		// Changing the setting runs commands in the distribution, which boots
+		// it with systemd. Stop it so that the machine is still reported as
+		// stopped and the new wsl.conf is used at the next start.
+		if err := terminateDist(dist); err != nil {
+			return fmt.Errorf("could not stop the WSL distribution: %w", err)
 		}
 
 		mc.WSLHypervisor.UserModeNetworking = *opts.UserModeNetworking
@@ -219,6 +222,8 @@ func (w WSLStubber) PostStartNetworking(mc *vmconfigs.MachineConfig, noInfo bool
 func (w WSLStubber) StartVM(mc *vmconfigs.MachineConfig) (func() error, func() error, error) {
 	dist := env.WithPodmanPrefix(mc.Name)
 
+	// On legacy machines, created by Podman v6.1 and earlier, the bootstrap
+	// script starts systemd in a separate namespace.
 	err := wslInvoke(dist, "/root/bootstrap")
 	if err != nil {
 		return nil, nil, fmt.Errorf("the WSL bootstrap script failed: %w", err)
@@ -272,6 +277,7 @@ func (w WSLStubber) StopVM(mc *vmconfigs.MachineConfig, _ bool) error {
 	}
 
 	cmd := wutil.NewWSLCommand("-u", "root", "-d", dist, "sh")
+	logrus.Debugf("Running command: %s %v", cmd.Path, cmd.Args)
 	cmd.Stdin = strings.NewReader(waitTerm)
 	out := &bytes.Buffer{}
 	cmd.Stderr = out
@@ -281,15 +287,15 @@ func (w WSLStubber) StopVM(mc *vmconfigs.MachineConfig, _ bool) error {
 		return fmt.Errorf("executing wait command: %w", err)
 	}
 
-	exitCmd := wutil.NewWSLCommand("-u", "root", "-d", dist, "/usr/local/bin/enterns", "systemctl", "exit", "0")
-	if err = exitCmd.Run(); err != nil {
-		return fmt.Errorf("stopping systemd: %w", err)
+	// exitCmd.Stdin = strings.NewReader(term)
+	err = wslPipe(term, dist, "sh")
+	if err != nil {
+		return fmt.Errorf("terminating main process: %w", err)
 	}
 
 	if err = cmd.Wait(); err != nil {
-		logrus.Warnf("Failed to wait for systemd to exit: (%s)", strings.TrimSpace(out.String()))
+		logrus.Warnf("Failed to wait for the main process to exit: (%s)", strings.TrimSpace(out.String()))
 	}
-
 	return terminateDist(dist)
 }
 
@@ -302,6 +308,12 @@ func (w WSLStubber) UpdateSSHPort(mc *vmconfigs.MachineConfig, port int) error {
 
 	if err := wslInvoke(dist, "sh", "-c", fmt.Sprintf(changePort, port)); err != nil {
 		return fmt.Errorf("could not change SSH port for guest OS: %w", err)
+	}
+
+	// Try restarting sshd with the new port. This is in case it was already started at
+	// the WSL distribution boot.
+	if err := wslInvoke(dist, "sh", "-c", restartSSHD); err != nil {
+		return fmt.Errorf("could not restart sshd after SSH port change: %w", err)
 	}
 
 	return nil

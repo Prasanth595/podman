@@ -39,49 +39,66 @@ const sudoers = `%wheel        ALL=(ALL)       NOPASSWD: ALL
 `
 
 const bootstrap = `#!/bin/bash
-ps -ef | grep -v grep | grep -q systemd && exit 0
-nohup unshare --kill-child --fork --pid --mount --mount-proc --propagation shared /lib/systemd/systemd >/dev/null 2>&1 &
+# Wait for systemd to be up. It's ok if the command
+# "systemctl is-system-running" returns non-zero.
+timeout 60 systemctl is-system-running --wait >/dev/null 2>&1 || true
+
+# Trick to keep the WSL distribution alive or WSL idles it.
+nohup sleep infinity </dev/null >/dev/null 2>&1 &
+
+# Sleep to avoid a nohup/SIGHUP race
 sleep 0.1
 `
 
-const wslmotd = `
-You will be automatically entered into a nested process namespace where
-systemd is running. If you need to access the parent namespace, hit ctrl-d
-or type exit. This also means to log out you need to exit twice.
+// Machines created by Podman v6.1 and earlier don't use the WSL systemd
+// support: their /root/bootstrap script starts systemd in a separate PID and
+// mount namespace. These machines are still supported and are identified by
+// the script used to enter that namespace, that newer machines don't have.
+const (
+	sysdpid  = "CHECKPID=`ps -eo cmd,pid | grep -m 1 ^/lib/systemd/systemd | awk '{print $2}'`"
+	sleeppid = "CHECKPID=`ps -eo cmd,pid | grep -m 1 '^sleep infinity' | awk '{print $2}'`"
+)
 
+// isSystemRunning prints the systemd state, in the systemd namespace for
+// legacy machines. For legacy machines it only checks that systemd is running.
+const isSystemRunning = `if [ -e /usr/local/bin/enterns ]; then
+	# The machine has been created with Podman 6.1 or earlier
+	# and doesn't use the WSL-native systemd
+` + sysdpid + `
+else
+` + sleeppid + `
+fi
+if [ -n "$CHECKPID" ] && [ "$CHECKPID" != "1" ]; then echo running; else echo offline; fi
 `
 
-const sysdpid = "SYSDPID=`ps -eo cmd,pid | grep -m 1 ^/lib/systemd/systemd | awk '{print $2}'`"
+const waitTerm = `if [ -e /usr/local/bin/enterns ]; then
+	# The machine has been created with Podman 6.1 or earlier
+	# and that doesn't use WSL native systemd
+` + sysdpid + `
+else
+` + sleeppid + `
+fi
+if [ -z "$CHECKPID" ]; then timeout 60 tail -f /dev/null --pid $CHECKPID; fi
+`
 
-const profile = sysdpid + `
-if [ ! -z "$SYSDPID" ] && [ "$SYSDPID" != "1" ]; then
-    cat /etc/wslmotd
-	/usr/local/bin/enterns
+const term = `if [ -e /usr/local/bin/enterns ]; then
+	# The machine has been created with Podman 6.1 or earlier
+	# and that doesn't use WSL native systemd
+	/usr/local/bin/enterns systemctl exit 0
+else
+	systemctl poweroff
 fi
 `
 
-const enterns = "#!/bin/bash\n" + sysdpid + `
-if [ ! -z "$SYSDPID" ] && [ "$SYSDPID" != "1" ]; then
-        NSENTER=("nsenter" "-m" "-p" "-t" "$SYSDPID" "--wd=$PWD")
-
-        if [ "$UID" != "0" ]; then
-                NSENTER=("sudo" "${NSENTER[@]}")
-                if [ "$#" != "0" ]; then
-                        NSENTER+=("sudo" "-u" "$USER")
-                else
-                        NSENTER+=("su" "-l" "$USER")
-                fi
-        fi
-        "${NSENTER[@]}" "$@"
-fi`
-
-const waitTerm = sysdpid + `
-if [ ! -z "$SYSDPID" ]; then
-	timeout 60 tail -f /dev/null --pid $SYSDPID
+const restartSSHD = `if [ ! -e /usr/local/bin/enterns ]; then
+	systemctl try-restart sshd.service
 fi
 `
 
-const wslConf = `[user]
+const wslConf = `[boot]
+systemd=true
+
+[user]
 default=[USER]
 `
 
