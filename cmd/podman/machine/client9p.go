@@ -50,10 +50,7 @@ func remoteDirClient(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("error parsing port number: %w", err)
 	}
 
-	readOnly, _ := strconv.ParseBool(os.Getenv("CONTAINERS_MACHINE_9P_READ_ONLY"))
-	if !readOnly {
-		readOnly, _ = strconv.ParseBool(os.Getenv("PODMAN_9P_READ_ONLY"))
-	}
+	readOnly, _ := strconv.ParseBool(os.Getenv("PODMAN_9P_READ_ONLY"))
 	if err := client9p(cmd.Context(), uint32(port), args[1], readOnly); err != nil {
 		return err
 	}

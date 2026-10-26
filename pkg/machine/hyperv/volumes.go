@@ -35,11 +35,11 @@ func startShareMountArgs(mount *vmconfigs.Mount, debug bool) ([]string, error) {
 	var args []string
 	requiresChattr := !strings.HasPrefix(cleanTarget, "/home") && !strings.HasPrefix(cleanTarget, "/mnt")
 	if requiresChattr {
-		args = append(args, "sudo", "chattr", "-i", "/", "; ")
+		args = append(args, "sudo", "chattr", "-i", "/", "&&")
 	}
-	args = append(args, "sudo", "mkdir", "-p", strconv.Quote(cleanTarget), "; ")
+	args = append(args, "sudo", "mkdir", "-p", strconv.Quote(cleanTarget), "&&")
 	if requiresChattr {
-		args = append(args, "sudo", "chattr", "+i", "/", "; ")
+		args = append(args, "sudo", "chattr", "+i", "/", "&&")
 	}
 
 	args = append(args, "sudo")
@@ -47,7 +47,7 @@ func startShareMountArgs(mount *vmconfigs.Mount, debug bool) ([]string, error) {
 		// Pass read-only preference via environment variable rather than a CLI flag.
 		// Older guest podman versions ignore the env var, while newer versions
 		// read it to mount the filesystem read-only.
-		args = append(args, "CONTAINERS_MACHINE_9P_READ_ONLY=1")
+		args = append(args, "PODMAN_9P_READ_ONLY=1")
 	}
 	args = append(args, "podman")
 	if debug {
@@ -59,7 +59,8 @@ func startShareMountArgs(mount *vmconfigs.Mount, debug bool) ([]string, error) {
 	}
 	args = append(args, clientArgs...)
 	if mount.ReadOnly {
-		args = append(args, "; ", "sudo", "mount", "-o", "remount,ro", strconv.Quote(cleanTarget))
+		// Remount should be removed in the future when the client inside is new enough to do this by default.
+		args = append(args, "&&", "sudo", "mount", "-o", "remount,ro", strconv.Quote(cleanTarget))
 	}
 	return args, nil
 }
