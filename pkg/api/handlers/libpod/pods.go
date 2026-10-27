@@ -623,3 +623,24 @@ func PodStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
+func PodClone(w http.ResponseWriter, r *http.Request) {
+	runtime := r.Context().Value(api.RuntimeKey).(*libpod.Runtime)
+	options := entities.PodCloneOptions{}
+	if err := json.NewDecoder(r.Body).Decode(&options); err != nil {
+		utils.Error(w, http.StatusBadRequest, fmt.Errorf("decode(): %w", err))
+		return
+	}
+	options.ID = utils.GetName(r)
+	containerEngine := abi.ContainerEngine{Libpod: runtime}
+	report, err := containerEngine.PodClone(r.Context(), options)
+	if err != nil {
+		if errors.Is(err, define.ErrNoSuchPod) {
+			utils.PodNotFound(w, options.ID, err)
+			return
+		}
+		utils.InternalServerError(w, err)
+		return
+	}
+	utils.WriteResponse(w, http.StatusCreated, report)
+}

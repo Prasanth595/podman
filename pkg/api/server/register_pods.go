@@ -326,6 +326,34 @@ func (s *APIServer) registerPodsHandlers(r *mux.Router) error {
 	//   500:
 	//     $ref: "#/responses/internalError"
 	r.Handle(VersionedPath("/libpod/pods/{name}/top"), s.APIHandler(libpod.PodTop)).Methods(http.MethodGet)
+	// swagger:operation POST /libpod/pods/{name}/clone pods PodCloneLibpod
+	// ---
+	// summary: Clone a pod
+	// description: Create a copy of an existing pod and its containers, optionally overriding its configuration.
+	// produces:
+	// - application/json
+	// parameters:
+	//  - in: path
+	//    name: name
+	//    type: string
+	//    required: true
+	//    description: the name or ID of the pod to clone
+	//  - in: body
+	//    name: options
+	//    description: clone options, same structure as used by podman pod clone
+	//    schema:
+	//      type: object
+	// responses:
+	//   201:
+	//     schema:
+	//       $ref: "#/definitions/IDResponse"
+	//   400:
+	//     $ref: "#/responses/badParamError"
+	//   404:
+	//     $ref: "#/responses/podNotFound"
+	//   500:
+	//     $ref: "#/responses/internalError"
+	r.Handle(VersionedPath("/libpod/pods/{name}/clone"), s.APIHandler(libpod.PodClone)).Methods(http.MethodPost)
 	// swagger:operation GET /libpod/pods/stats pods PodStatsAllLibpod
 	// ---
 	// tags:
