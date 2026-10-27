@@ -285,7 +285,7 @@ func (c *Container) handleRestartPolicy(ctx context.Context) (_ bool, retErr err
 
 	if c.config.HealthCheckConfig != nil {
 		if err := c.removeTransientFiles(ctx,
-			c.config.StartupHealthCheckConfig != nil && !c.state.StartupHCPassed,
+			c.startupHealthCheckActive(),
 			c.state.HCUnitName); err != nil {
 			return false, err
 		}
@@ -1126,12 +1126,13 @@ func (c *Container) init(ctx context.Context, retainRetries bool) error {
 		return err
 	}
 
-	if c.config.HealthCheckConfig != nil {
+	isStartupHC := c.startupHealthCheckActive()
+	if c.HasHealthCheck() || isStartupHC {
 		timer := c.config.HealthCheckConfig.Interval.String()
-		if c.config.StartupHealthCheckConfig != nil {
+		if isStartupHC {
 			timer = c.config.StartupHealthCheckConfig.Interval.String()
 		}
-		if err := c.createTimer(timer, c.config.StartupHealthCheckConfig != nil); err != nil {
+		if err := c.createTimer(timer, isStartupHC); err != nil {
 			return fmt.Errorf("create healthcheck: %w", err)
 		}
 	}
@@ -1617,7 +1618,7 @@ func (c *Container) pause() error {
 
 	if c.state.HCUnitName != "" {
 		if err := c.removeTransientFiles(context.Background(),
-			c.config.StartupHealthCheckConfig != nil && !c.state.StartupHCPassed,
+			c.startupHealthCheckActive(),
 			c.state.HCUnitName); err != nil {
 			return fmt.Errorf("failed to remove HealthCheck timer: %w", err)
 		}
@@ -1647,9 +1648,8 @@ func (c *Container) unpause() error {
 		return err
 	}
 
-	isStartupHealthCheck := c.config.StartupHealthCheckConfig != nil && !c.state.StartupHCPassed
-	isHealthCheckEnabled := c.config.HealthCheckConfig != nil &&
-		(len(c.config.HealthCheckConfig.Test) != 1 || c.config.HealthCheckConfig.Test[0] != "NONE")
+	isStartupHealthCheck := c.startupHealthCheckActive()
+	isHealthCheckEnabled := c.HasHealthCheck()
 	if isHealthCheckEnabled || isStartupHealthCheck {
 		timer := c.config.HealthCheckConfig.Interval.String()
 		if isStartupHealthCheck {
@@ -1700,7 +1700,7 @@ func (c *Container) restartWithTimeout(ctx context.Context, timeout uint) (retEr
 
 		if c.config.HealthCheckConfig != nil {
 			if err := c.removeTransientFiles(context.Background(),
-				c.config.StartupHealthCheckConfig != nil && !c.state.StartupHCPassed,
+				c.startupHealthCheckActive(),
 				c.state.HCUnitName); err != nil {
 				logrus.Error(err.Error())
 			}
@@ -2236,7 +2236,7 @@ func (c *Container) cleanup(ctx context.Context) error {
 	// Remove healthcheck unit/timer file if it execs
 	if c.config.HealthCheckConfig != nil {
 		if err := c.removeTransientFiles(ctx,
-			c.config.StartupHealthCheckConfig != nil && !c.state.StartupHCPassed,
+			c.startupHealthCheckActive(),
 			c.state.HCUnitName); err != nil {
 			logrus.Errorf("Removing timer for container %s healthcheck: %v", c.ID(), err)
 		}
@@ -2953,7 +2953,7 @@ func (c *Container) resetHealthCheckTimers(noHealthCheck bool, changedTimer bool
 	}
 	if noHealthCheck {
 		if err := c.removeTransientFiles(context.Background(),
-			c.config.StartupHealthCheckConfig != nil && !c.state.StartupHCPassed,
+			c.startupHealthCheckActive(),
 			c.state.HCUnitName); err != nil {
 			return err
 		}
@@ -3016,7 +3016,7 @@ func (c *Container) updateHealthCheck(newHealthCheckConfig IHealthCheckConfig, c
 		changedTimer = newHealthCheckConfig.IsTimeChanged(oldInterval)
 	}
 
-	noHealthCheck := c.config.HealthCheckConfig != nil && slices.Contains(c.config.HealthCheckConfig.Test, "NONE")
+	noHealthCheck := !c.HasHealthCheck()
 
 	if err := c.resetHealthCheckTimers(noHealthCheck, changedTimer, !oldHealthCheckConfig.IsNil(), newHealthCheckConfig.IsStartup()); err != nil {
 		return err
