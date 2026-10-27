@@ -552,3 +552,24 @@ func parseRLimits(rLimits []WirePOSIXRlimit) ([]specs.POSIXRlimit, error) {
 	}
 	return rl, nil
 }
+
+func CloneContainer(w http.ResponseWriter, r *http.Request) {
+	runtime := r.Context().Value(api.RuntimeKey).(*libpod.Runtime)
+	options := entities.ContainerCloneOptions{}
+	if err := json.NewDecoder(r.Body).Decode(&options); err != nil {
+		utils.Error(w, http.StatusBadRequest, fmt.Errorf("decode(): %w", err))
+		return
+	}
+	options.ID = utils.GetName(r)
+	containerEngine := abi.ContainerEngine{Libpod: runtime}
+	report, err := containerEngine.ContainerClone(r.Context(), options)
+	if err != nil {
+		if errors.Is(err, define.ErrNoSuchCtr) {
+			utils.ContainerNotFound(w, options.ID, err)
+			return
+		}
+		utils.InternalServerError(w, err)
+		return
+	}
+	utils.WriteResponse(w, http.StatusCreated, report)
+}

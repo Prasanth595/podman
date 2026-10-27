@@ -1079,8 +1079,8 @@ func (ic *ContainerEngine) ContainerRename(_ context.Context, nameOrID string, o
 	return containers.Rename(ic.ClientCtx, nameOrID, new(containers.RenameOptions).WithName(opts.NewName))
 }
 
-func (ic *ContainerEngine) ContainerClone(_ context.Context, _ entities.ContainerCloneOptions) (*entities.ContainerCreateReport, error) {
-	return nil, errors.New("cloning a container is not supported on the remote client")
+func (ic *ContainerEngine) ContainerClone(_ context.Context, ctrCloneOpts entities.ContainerCloneOptions) (*entities.ContainerCreateReport, error) {
+	return containers.Clone(ic.ClientCtx, ctrCloneOpts)
 }
 
 // ContainerUpdate finds and updates the given container's cgroup config with the specified options

@@ -203,8 +203,8 @@ func (ic *ContainerEngine) PodCreate(_ context.Context, specg entities.PodSpec) 
 	return pods.CreatePodFromSpec(ic.ClientCtx, &specg)
 }
 
-func (ic *ContainerEngine) PodClone(_ context.Context, _ entities.PodCloneOptions) (*entities.PodCloneReport, error) {
-	return nil, nil
+func (ic *ContainerEngine) PodClone(_ context.Context, podClone entities.PodCloneOptions) (*entities.PodCloneReport, error) {
+	return pods.Clone(ic.ClientCtx, podClone)
 }
 
 func (ic *ContainerEngine) PodTop(_ context.Context, opts entities.PodTopOptions) (*entities.StringSliceReport, error) {
