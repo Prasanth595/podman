@@ -255,13 +255,12 @@ func convertMountToCliString(m mount.Mount) (string, error) {
 		if m.VolumeOptions != nil {
 			addField(&builder, "subpath", m.VolumeOptions.Subpath)
 		}
-		// All current VolumeOpts are handled above
-		// See vendor/github.com/containers/common/pkg/parse/parse.go:ValidateVolumeOpts()
 	case mount.TypeImage:
 		if m.ImageOptions != nil {
 			addField(&builder, "subpath", m.ImageOptions.Subpath)
 		}
 	}
+	// See vendor/github.com/containers/common/pkg/parse/parse.go:ValidateVolumeOpts()
 	return builder.String(), nil
 }
 
