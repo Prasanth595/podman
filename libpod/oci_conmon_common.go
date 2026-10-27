@@ -1488,9 +1488,10 @@ func readConmonPipeData(runtimeName string, pipe *os.File, ociLog string) (int, 
 			if ociLog != "" {
 				ociLogData, err := os.ReadFile(ociLog)
 				if err == nil {
-					var ociErr ociError
-					if err := json.Unmarshal(ociLogData, &ociErr); err == nil {
-						return -1, getOCIRuntimeError(runtimeName, ociErr.Msg)
+					// Forward the error(s) the OCI runtime logged, which may be
+					// a single JSON object or several (e.g. a failed CRIU restore).
+					if errs, err := parseOCIErrors(ociLogData); err == nil && len(errs) > 0 {
+						return -1, getOCIRuntimeErrorMultiline(runtimeName, errs)
 					}
 				}
 			}
@@ -1501,9 +1502,10 @@ func readConmonPipeData(runtimeName string, pipe *os.File, ociLog string) (int, 
 			if ociLog != "" {
 				ociLogData, err := os.ReadFile(ociLog)
 				if err == nil {
-					var ociErr ociError
-					if err := json.Unmarshal(ociLogData, &ociErr); err == nil {
-						return ss.si.Data, getOCIRuntimeError(runtimeName, ociErr.Msg)
+					// Forward the error(s) the OCI runtime logged, which may be
+					// a single JSON object or several (e.g. a failed CRIU restore).
+					if errs, err := parseOCIErrors(ociLogData); err == nil && len(errs) > 0 {
+						return ss.si.Data, getOCIRuntimeErrorMultiline(runtimeName, errs)
 					}
 				}
 			}
