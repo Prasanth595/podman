@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -189,6 +190,28 @@ func localhostNativeSSH(username, identityPath, name string, sshPort int, inputA
 	return cmd.Run()
 }
 
+// localhostKnownHostsFile returns a real file path to pass as ssh's UserKnownHostsFile.
+//
+// os.DevNull is deliberately not used here. It is "NUL" on Windows, and the ssh binary
+// is resolved from PATH rather than pinned, so under Git Bash/MSYS2 it can be the MSYS
+// ssh, which treats "NUL" as a relative filename and creates a literal file named NUL in
+// the caller's current working directory. NUL is a reserved device name on Windows: it
+// cannot be opened or deleted by most tools, and committing one breaks git checkouts.
+//
+// A real path avoids the whole class of problem, and filepath.ToSlash keeps it usable by
+// both native Windows OpenSSH and Cygwin/MSYS builds (a backslash path is not portable
+// between them). The file only ever receives discarded host keys because
+// StrictHostKeyChecking=no is in effect, so a stable per-caller path is sufficient; it
+// does not need to be a fresh temp file per invocation.
+func localhostKnownHostsFile() string {
+	knownHosts := filepath.Join(os.TempDir(), "podman-machine-known-hosts")
+	// Create it up front so ssh never has to infer whether its parent is writable.
+	if f, err := os.OpenFile(knownHosts, os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+		f.Close()
+	}
+	return filepath.ToSlash(knownHosts)
+}
+
 // LocalhostSSHArgs returns OpenSSH command-line options for connecting with no host key identity checks.
 //
 // WARNING: This MUST NOT be used to communicate over untrusted networks.
@@ -199,7 +222,7 @@ func LocalhostSSHArgs() []string {
 	return []string{
 		"-o", "IdentitiesOnly=yes",
 		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=" + os.DevNull,
+		"-o", "UserKnownHostsFile=" + localhostKnownHostsFile(),
 		"-o", "CheckHostIP=no",
 		"-o", "LogLevel=ERROR",
 		"-o", "SetEnv=LC_ALL=",
