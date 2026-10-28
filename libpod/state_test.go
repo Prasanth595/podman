@@ -3,6 +3,7 @@
 package libpod
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +53,74 @@ func runForAllStates(t *testing.T, testFunc func(*testing.T, State, lock.Manager
 			testFunc(t, state, manager)
 		})
 	}
+}
+
+// getSqliteStateWithFullConfig creates a SQLite state backed by a runtime that
+// has explicit storage paths set. This mirrors getEmptySqliteState but retains
+// the *Runtime so tests can mutate the paths and re-run ValidateDBConfig.
+func getSqliteStateWithFullConfig(t *testing.T) (*Runtime, State, lock.Manager) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	lockManager, err := lock.NewInMemoryManager(16)
+	require.NoError(t, err)
+
+	runtime := new(Runtime)
+	runtime.config = new(config.Config)
+	runtime.storageConfig = storage.StoreOptions{}
+	runtime.storageSet = storageSet{}
+	runtime.lockManager = lockManager
+
+	runtime.storageConfig.GraphRoot = filepath.Join(tmpDir, "graphroot")
+	runtime.storageConfig.RunRoot = filepath.Join(tmpDir, "runroot")
+	runtime.config.Engine.StaticDir = filepath.Join(tmpDir, "staticdir")
+	runtime.config.Engine.TmpDir = filepath.Join(tmpDir, "tmpdir")
+	runtime.config.Engine.VolumePath = filepath.Join(tmpDir, "volumes")
+	runtime.storageSet.StaticDirSet = true
+
+	state, err := NewSqliteState(runtime)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		state.Close()
+	})
+
+	return runtime, state, lockManager
+}
+
+func TestValidateDBConfigOverwritesWhenNoObjects(t *testing.T) {
+	runtime, state, _ := getSqliteStateWithFullConfig(t)
+
+	// First validation stores the initial paths.
+	require.NoError(t, state.ValidateDBConfig(runtime))
+
+	cfg, err := state.GetDBConfig()
+	require.NoError(t, err)
+	require.Equal(t, runtime.config.Engine.VolumePath, cfg.VolumePath)
+
+	// Changing a cached path with no containers, pods, or volumes present
+	// must not fail - the stored paths are overwritten instead.
+	newVolumePath := filepath.Join(t.TempDir(), "newvolumes")
+	runtime.config.Engine.VolumePath = newVolumePath
+	require.NoError(t, state.ValidateDBConfig(runtime))
+
+	cfg, err = state.GetDBConfig()
+	require.NoError(t, err)
+	require.Equal(t, newVolumePath, cfg.VolumePath, "cached volume path should be overwritten")
+}
+
+func TestValidateDBConfigProtectedWhenObjectsExist(t *testing.T) {
+	runtime, state, manager := getSqliteStateWithFullConfig(t)
+
+	require.NoError(t, state.ValidateDBConfig(runtime))
+
+	// Once a container exists, changing a cached path must fail as before.
+	ctr, err := getTestCtr1(manager)
+	require.NoError(t, err)
+	require.NoError(t, state.AddContainer(ctr))
+
+	runtime.config.Engine.VolumePath = filepath.Join(t.TempDir(), "newvolumes")
+	err = state.ValidateDBConfig(runtime)
+	require.Error(t, err)
+	require.ErrorIs(t, err, define.ErrDBBadConfig)
 }
 
 func TestAddAndGetContainer(t *testing.T) {
