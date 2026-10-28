@@ -253,17 +253,36 @@ function DocumentationUsingPodman {
     Run-Command "${podmanClient} run -t --rm -v ${PSScriptRoot}:/podman podman-docs-generator"
 }
 
+# Validate runs a make target in the validatepr container (like `make validatepr`
+# on Linux and macOS). It defaults to `.validatepr`, which builds the binaries
+# and runs `make validate`. Use `validate-source` to only run the checks that
+# don't require building the binaries (lint, shfmt, swagger-check, etc.).
 function Validate {
+    param (
+        [string]$makeTarget = '.validatepr'
+    )
     $podmanExecutable = 'podman'
     $podmanSrcVolumeMount = "${PSScriptRoot}:/go/src/github.com/containers/podman"
     # All files bind mounted from a Windows host are marked as executable.
     # That makes the pre-commit hook "check-executables-have-shebangs" fail.
     # Setting the environment variable "SKIP=check-executables-have-shebangs"
     # allow to skip that pre-commit hook.
-    $podmanEnvVariable = '-e SKIP=check-executables-have-shebangs'
-    $podmanRunArgs = "--rm -v $podmanSrcVolumeMount --security-opt label=disable -t -w /go/src/github.com/containers/podman $podmanEnvVariable"
+    # The validatepr image is built manually and its Go version can be older
+    # than the one required by go.mod. GOTOOLCHAIN=auto lets Go download the
+    # required toolchain (cached in the validatepr-gomodcache volume).
+    $podmanEnvVariable = '-e SKIP=check-executables-have-shebangs -e GOTOOLCHAIN=auto'
+    # Named volumes persist the Go build, Go modules, golangci-lint and
+    # pre-commit caches between runs. That makes subsequent runs much faster.
+    $podmanCacheVolumes = @(
+        '-v validatepr-gocache:/root/.cache/go-build',
+        '-v validatepr-gomodcache:/root/go/pkg/mod',
+        '-v validatepr-lintcache:/root/.cache/golangci-lint',
+        '-v validatepr-precommitcache:/root/.cache/pre-commit'
+    ) -join ' '
+    # --init allows to cancel the run with Ctrl+C
+    $podmanRunArgs = "--rm --init --tmpfs /tmp -v $podmanSrcVolumeMount $podmanCacheVolumes --security-opt label=disable --network=host -t -w /go/src/github.com/containers/podman $podmanEnvVariable"
     $validateImage = 'quay.io/libpod/validatepr:latest'
-    $validateCommand = 'make .validatepr'
+    $validateCommand = "make $makeTarget"
 
     # Check that podman is installed
     if (!(Get-Command -Name $podmanExecutable -ErrorAction SilentlyContinue)) {
@@ -429,6 +448,9 @@ switch ($target) {
     'validatepr' {
         Validate
     }
+    'validate-source' {
+        Validate -makeTarget 'validate-source'
+    }
     'lint' {
         Lint
     }
@@ -470,6 +492,9 @@ switch ($target) {
         Write-Host
         Write-Host 'Example: Validate code changes before submitting a PR'
         Write-Host ' .\winmake validatepr'
+        Write-Host
+        Write-Host 'Example: Run only the source validation checks (no binaries build)'
+        Write-Host ' .\winmake validate-source'
         Write-Host
         Write-Host 'Example: Run linters'
         Write-Host ' .\winmake lint'
