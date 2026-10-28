@@ -15,9 +15,10 @@
 %define qemu 1
 # bats is included in the default repos (No epel/copr etc.)
 %define distro_bats 1
-%if %{?fedora} >= 43
-%define sequoia 1
 %endif
+
+%if %{?fedora} >= 43 || 0%{?rhel} >= 10
+%define sequoia 1
 %endif
 
 %if %{defined copr_username}
